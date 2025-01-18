@@ -66,19 +66,15 @@ void otworz_sklep(void) {
         perror("blad ustawienia semafora 0");
         exit(EXIT_FAILURE);
     }
-    if (semctl(id_sem, 1, SETVAL, 1) == -1) { //manager sklepu (blokada raportu (otwarty)
+    if (semctl(id_sem, 1, SETVAL, 1) == -1) { //manager sklepu (blokada raportu - otwarty)
         perror("blad ustawienia semafora 1");
         exit(EXIT_FAILURE);
     }
-    if (semctl(id_sem, 2, SETVAL, 2) == -1) { //2 kasy otwarte
-        perror("blad ustawienia semafora 1");
+    if (semctl(id_sem, 2, SETVAL, 1) == -1) { //semafor ochroniarz 2 (blokada sklepu - otworz)
+        perror("blad ustawienia semafora 2");
         exit(EXIT_FAILURE);
     }
-    if (semctl(id_sem, 3, SETVAL, 1) == -1) { //semafor ochroniarz 2 (blokada sklepu)
-        perror("blad ustawienia semafora 3");
-        exit(EXIT_FAILURE);
-    }
-    sem_p(3);
+    /*sem_p(1); //zamknij blokade raportu
     FILE *file = fopen("raport_dzienny.txt", "w"); //plik raport (nadpisz)
     if (file == NULL) {
         perror("problem otwarcia pliku");
@@ -86,30 +82,67 @@ void otworz_sklep(void) {
     }
     fprintf(file, "%s", "---------RAPORT-DZIENNY--------\n"); //zawartosc do pliku
     fclose(file);
-    sem_v(3);
+    sem_v(1); //otworz blokade raportu */
     printf("\tSklep otwarty\n");
 }
 
 //zamykanie nocne
 void zamknij_sklep(void) {
-    sem_p(3); //ochroniarz pilnuje wejscia, by nikt nie wszedl
+    sem_p(2); //ochroniarz pilnuje wejscia, by nikt nie wszedl
     while(1) {
         sleep(1);
-        if(semctl(id_sem, 0, GETVAL) == 30) { //wszyscy klienci wyszli
-            printf("Nikogo nie ma na w sklepie\n");
-            semctl(id_sem, 0, SETVAL, 0);
+        if(semctl(id_sem, 0, GETVAL) == 30) { //czy wszyscy klienci wyszli
+            printf("Nikogo nie ma w sklepie\n");
+            //semctl(id_sem, 0, SETVAL, 0);
             printf("Nikogo nie ma na kasach\n");
             break;
         }
     }
     //dopisz do raport miesieczny...
+    printf("przeliczanie liczby klientow... \n");
+    //przelicz klientow
+    int potok1[2]; // potok2[2]; // cat ksiega_gosci.txt |wc -c | write()
+ 	if (pipe(potok1) == -1) { //|| pipe(potok2) == -1){
+ 		perror("pipe error"); 
+ 		exit(EXIT_FAILURE);
+ 	}
 
-    printf("\tSklep zamkniety\n");
+
+    pid_t a = fork();
+ 	if(a == -1) { //podliczanie klientow
+ 			perror("fork error");
+ 			exit(EXIT_FAILURE);
+    } else if (a == 0) {
+ 			close(potok1[0]);
+ 			dup2(potok1[1], 1);
+            sleep(1);
+ 			execlp("cat","cat", "ksiega_gosci.txt",NULL);
+            //ten exec zapisac do pliku
+ 			perror("execlp error");
+ 			exit(EXIT_FAILURE);
+    } else {
+        pid_t b = fork();
+        if (b == -1) { 
+            perror("fork error");
+ 		    exit(EXIT_FAILURE);
+        } else if (a == 0) {
+		    close(potok1[1]);
+ 		    dup2(potok1[0], 0);
+            sleep(1);
+            printf("\nPrzyszlo dzis tyle klientow: ");
+ 		    execlp("wc", "wc", "-c", NULL);
+ 		    perror("execlp error");
+		    exit(EXIT_FAILURE);
+        }
+        printf("\tSklep zamkniety\n");
+    }
+ 			
 }
 
 void zakoncz_program() {
+    printf("\n\t KONCZE PROGRAM \n");
     if (semctl(id_sem, 0, IPC_RMID) == -1) {
-        perror("nie mozna usunoac semafora");
+        perror("blad usunania semaforow");
         exit(EXIT_FAILURE);
     }
     if (fork() == 0) {
@@ -121,7 +154,7 @@ void zakoncz_program() {
 
 
 int main(){
-    id_sem = semget(klucz, 4, 0600 | IPC_CREAT); //semaforki
+    id_sem = semget(klucz, 3, 0600 | IPC_CREAT); //semaforki
     if (id_sem == -1) {
         perror("blad tworzenia semfarow");
         exit(EXIT_FAILURE);
@@ -133,7 +166,10 @@ int main(){
 
 
 
-    sleep(3);
+    sleep(5);
+    ilosc_klientow = 30 - semctl(id_sem, 0, GETVAL);
+    printf("Ilosc klientow: %d\n", ilosc_klientow);
+
     zamknij_sklep();
     zakoncz_program();
 
