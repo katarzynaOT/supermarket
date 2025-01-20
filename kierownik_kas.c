@@ -18,10 +18,18 @@
 #include <sys/prctl.h> //prctl
 #include <fcntl.h>
 
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
 
 #define MAX_TEXT 20 //ilosc znakow do zapisu do kolejki
 #define DZIEN 30 //czas trwania jednego dnia
 #define MAX_KASY 10 //maksymalna liczba aktywnych kas
+#define KLIENCI_NA_KASE 5 //liczba klientow na kase - zmienna
 
 int N; //liczba czynnych kas
 int K; //liczba klientow w sklepie
@@ -33,6 +41,11 @@ struct msg_buffer {
 	long mtype; //numer kasy
 	char mtext[MAX_TEXT]; //kto podchodzi do kasy
 };
+struct dane_kasy {
+    int id_msg;
+    int id_nowej_kasy;
+};
+
 
 static void sem_p(int nr) { //opuszczenie semafora
     struct sembuf bufor_sem;
@@ -166,39 +179,23 @@ void zakoncz_program() {
 }
 
 void *obsluga_kasy(void* arg) {
-    int msgid = *(int*)arg; //id kolejki komunikatow
+    struct dane_kasy* dane = (struct dane_kasy*)arg; // Rzutowanie wskaźnika void* na struct dane_kasy*
+    int msg_id = dane->id_msg;
+    int id_kasy = dane->id_nowej_kasy;
+
     struct msg_buffer message;
-    printf("\tWatek %d jest na kasie\n", getpid());
+    printf("\tWatek %ld jest na kasie %d", pthread_self(), id_kasy);
 
-    // Pobieranie numeru kasy na podstawie ID wątku
-    pthread_t tid = pthread_self();
-    int id_kasy = tid % MAX_KASY + 1; //cos nie tak
-
-    printf("Kasa %d: Gotowa do pracy.\n", id_kasy);
-
-
-    while (1) {
-        // Odczytanie komunikatu
-        //printf("\tKierownik odczytał komunikat: %s\n", message.mtext);
-        if (msgrcv(msgid, &message, sizeof(message.mtext) - sizeof(long), id_kasy, 0) == -1) {
+    while ( semctl(id_sem, 3, GETVAL) == id_kasy ) { //dopoki kasa otwarta i ktos czeka w kolejce
+//obsluga kllienta na kasie
+        if (msgrcv(msg_id, &message, sizeof(message.mtext) - sizeof(long), id_kasy, 0) == -1) {
             perror("blad odczytania komuinkatu");
-            //exit(EXIT_FAILURE);
-            continue;
+            exit(EXIT_FAILURE);
+            //continue;
         }
-        printf("Kasa %d obsluguje klienta %s\n", id_kasy, message.mtext);
-
-        printf("\tP: %s\n", message.mtext);
-
-        /*char lokalna_kopia[MAX_TEXT];
-        strncpy(lokalna_kopia, message.mtext, MAX_TEXT);
-        lokalna_kopia[MAX_TEXT - 1] = '\0';  // Zapewnienie, że tekst jest zakończony '\0'
-
-        printf("Kierownik odczytał komunikat od procesu %s\n", lokalna_kopia);*/
-
-        // Usuwanie komunikatu po odczycie jest automatyczne w System V
-        sleep(8);  // Symulacja czasu przetwarzania
+        printf(ANSI_COLOR_MAGENTA "Kasa %d obsluguje klienta %s\n" ANSI_COLOR_RESET, id_kasy, message.mtext);       
+        sleep((rand() % 11) + 1); ///czas obslugi jednego klienta (od 1 do 11)
     }
-
     return NULL;
 
 }
@@ -222,16 +219,34 @@ int main(){
 
 
 
-/*
-    // Tworzenie wątku do obsługi kolejki
-    pthread_t thread_id;
-    if (pthread_create(&thread_id, NULL, obsluga_kasy, &id_kolejki) != 0) {
-        perror("pthread_create");
-        exit(EXIT_FAILURE);
+    pthread_t kasy[MAX_KASY]; //pracownicy, ktorzy moga pracowac na kasach - istnieja, ale nie wszyscy obsluguja kase (niektorzy maja przerwy czy cos)
+//ile kas potrzebujemy
+    while (1) {
+        int liczba_klientow = 30 - semctl(id_sem, 1, GETVAL);
+        int liczba_kas = semctl(id_sem, 3, GETVAL);
+        if ( liczba_klientow >= ((liczba_kas - 1) * KLIENCI_NA_KASE) && liczba_kas < 10 ) { //zwiekszenie liczby kas
+            struct dane_kasy* dane = malloc(sizeof(struct dane_kasy));
+            if (dane == NULL) {
+                perror("malloc");
+                exit(EXIT_FAILURE);
+            }
+            dane->id_msg = id_kolejki;
+            dane->id_nowej_kasy = liczba_kas + 1;
+            if (pthread_create(&kasy[liczba_kas+1], NULL, obsluga_kasy, dane) != 0) { //pracownik idze na nowa kase
+                perror("pthread_create");
+                exit(EXIT_FAILURE);
+            }
+            sem_v(3); //otworz nowa kase
+        } else if ( liczba_klientow < ((liczba_kas - 1) * KLIENCI_NA_KASE) && liczba_kas > 2 ) { //zmniejszenie liczby kas
+            sem_p(3); //zamykamy kase
+            pthread_t pracownik;
+
+        }
+
     }
-    // Oczekiwanie na zakończenie wątku (teoretycznie nieskończone)
-    pthread_join(thread_id, NULL);
-*/
+
+
+
 
     // Tworzenie wątków dla kas
     pthread_t kasy[MAX_KASY];
