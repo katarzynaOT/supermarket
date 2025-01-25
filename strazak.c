@@ -76,36 +76,35 @@ int main(int argc, char* argv[]) {
    	if (kill(pid_menedzer, SIGUSR1) == -1) {
         perror("Nie udalo sie wyslac SIGUSR1 do menedzera");
         exit(EXIT_FAILURE);
+    } else {
+        printf("\t\twyslano sygnal do menedzera\n");
     }
 //wyslanie sygnalu do sklepu
     if (kill(pid_kierownik, SIGUSR1) == -1) {
         perror("Nie udalo sie wyslac SIGUSR1 do kierownika");
         exit(EXIT_FAILURE);
     }
-    // Komenda do znalezienia PID-ów procesów o podanej nazwie
     char command[256];
     snprintf(command, sizeof(command), "pgrep %s", "kierownik");
-
-    // Otwórz strumień i wykonaj komendę
     FILE *fp = popen(command, "r");
     if (fp == NULL) {
         perror("Nie udało się otworzyć strumienia");
         return EXIT_FAILURE;
     }
-
     char pid_str[16];
     while (fgets(pid_str, sizeof(pid_str), fp)) {
         pid_t pid = (pid_t)strtol(pid_str, NULL, 10); //konwersja pid na liczbe
-        if (kill(pid, SIGUSR1) == -1) {
+        if (kill(pid, SIGUSR1) == 0) {
+            printf("wyslano sygnal do %d\n", pid);
+        } else {
             perror("Nie udało się wysłać sygnału");
         }
     }
-
     pclose(fp);
     printf("\tok\n");
 
 //wyslanie sygnalow do klientow
-    FILE *file = fopen("ksiega_gosci.txt", "r"); 
+    FILE *file = fopen("ksiega_gosci.txt", "r"); //plik raport
     if (file == NULL) {
         perror("Nie można otworzyc pliku");
         exit(EXIT_FAILURE);
@@ -115,7 +114,7 @@ int main(int argc, char* argv[]) {
     int count = 0;   
     char line[256];
     while (fgets(line, sizeof(line), file)) {
-        long pos = ftell(file);          
+        long pos = ftell(file);     
         positions[count % liczba_klientow] = pos - strlen(line) - 1; 
         count++;
         //positions[count % liczba_klientow] = ftell(file);
