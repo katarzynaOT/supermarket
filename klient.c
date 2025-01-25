@@ -64,25 +64,28 @@ static void sem_v(int nr) { //podniesienie semafora
 void zapisz_sie(const char *tresc) {
     FILE *file = fopen("ksiega_gosci.txt", "a"); //plik raport
     if (file == NULL) {
-        perror("Nie można otworzyć pliku");
+        perror("Nie można otworzyc pliku");
         exit(EXIT_FAILURE);
     }
     fprintf(file, "%s", tresc); //zawartosc do pliku
     fclose(file);
 }
 
-/*void pozar_alarm(int sig) {
+/////////////////////////
+void pozar_alarm(int sig) {
     if (sig == SIGUSR1) {
-        printf("Pozar! Klient %d ucieka", getpid());
-        exit(0);
+        printf(ANSI_COLOR_RED "\tPozar! Klient %d ucieka\n" ANSI_COLOR_RESET, getpid());
+        sem_v(0);
+        exit(0); //wyjdz ze sklepu - natychmiast
     }
 }
 
-void sighandler(int signum, siginfo_t *info, void *ptr)
+/*void sighandler(int signum, siginfo_t *info, void *ptr)
 {
         printf("Sygnal SIGINT!\n");
         return;
 }*/
+////////////////////////////////
 
 int main(int argc, char *argv[]) {
     //sleep(2);
@@ -98,14 +101,15 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-    /*struct sigaction sa; //sygnal
+//////////////////////////////////////
+    struct sigaction sa; //sygnal
     sa.sa_handler = pozar_alarm;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     if (sigaction(SIGUSR1, &sa, NULL) == -1) {
         perror("blad ustawienia sygnalu");
         exit(EXIT_FAILURE);
-    }*/
+    }
     
 //sprobuj wejsc do sklepu
     if (semctl(id_sem, 2, GETVAL) == 0 ) { //sklep zamkniety, zabij sie (idz do innego sklepu)
@@ -134,7 +138,10 @@ printf(ANSI_COLOR_WHITE "");
             
 //zapisz sie w ksiedze gosci
         sem_p(1);
-        zapisz_sie("i");
+        pid_t pid = getpid();
+        char pid_str[20]; 
+        snprintf(pid_str, sizeof(pid_str), "%d\n", pid);//zamiana pid na stringsa
+        zapisz_sie(pid_str);
         sem_v(1);
 
 //idz do kasy
@@ -167,8 +174,8 @@ printf(ANSI_COLOR_WHITE "");
 
 //wyjscie ze sklepu
         sem_v(0);
-        printf(ANSI_COLOR_CYAN "Klient %d wychodzi ze sklepu\t %d\\30 \n" ANSI_COLOR_RESET, getpid(), 30-semctl(id_sem, 0, GETVAL));
-        exit(0); //zakoncz
+        printf(ANSI_COLOR_CYAN "Klient %d wychodzi ze sklepu\t\t %d\\30 \n" ANSI_COLOR_RESET, getpid(), 30-semctl(id_sem, 0, GETVAL));
+        exit(0); //zakoncz zywot
     } 
         
 
