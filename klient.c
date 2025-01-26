@@ -71,21 +71,13 @@ void zapisz_sie(const char *tresc) {
     fclose(file);
 }
 
-/////////////////////////
 void pozar_alarm(int sig) {
-    if (sig == SIGUSR1) {
+    if (sig == SIGINT) {
         printf(ANSI_COLOR_RED "\tPozar! Klient %d ucieka\n" ANSI_COLOR_RESET, getpid());
         sem_v(0);
         exit(0); //wyjdz ze sklepu - natychmiast
     }
 }
-
-/*void sighandler(int signum, siginfo_t *info, void *ptr)
-{
-        printf("Sygnal SIGINT!\n");
-        return;
-}*/
-////////////////////////////////
 
 int main(int argc, char *argv[]) {
     //sleep(2);
@@ -106,7 +98,7 @@ int main(int argc, char *argv[]) {
     sa.sa_handler = pozar_alarm;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("blad ustawienia sygnalu");
         exit(EXIT_FAILURE);
     }
@@ -134,7 +126,7 @@ int main(int argc, char *argv[]) {
         printf(ANSI_COLOR_GREEN "Klient %d wchodzi do sklepu. \t\t %d\\30 \n" ANSI_COLOR_RESET, getpid(), 30-semctl(id_sem, 0, GETVAL));
 printf(ANSI_COLOR_WHITE "");
         srand(time(NULL));
-        sleep((rand() % 11) + 1); //badz w sklepie (od 1 do 11 sekund)
+        sleep((rand() % 20) + 1); //badz w sklepie (od 1 do 11 sekund)
             
 //zapisz sie w ksiedze gosci
         sem_p(1);
@@ -150,37 +142,30 @@ printf(ANSI_COLOR_WHITE "");
         int kasa;
         int max_kasa = semctl(id_sem, 3, GETVAL); //liczba aktywnych kas
         kasa = rand() % max_kasa + 1; //losowanie kasy od 1 do max_kasa
-
         message.mtype = kasa; //przekazuje nr kasy, do ktorej idze klient
         snprintf(message.mtext, MAX_TEXT, "%d", getpid()); //przkazuje numer PID klienta do komunikatu
-
-//wyslanie komunikatu
+//wyslanie komunikatu - wejscie do kolejki
         if (msgsnd(id_kolejki, &message, strlen(message.mtext) + 1, 0) == -1) {
             perror("blad wpisanie sie do kolejki");
             exit(EXIT_FAILURE);
         }
-
         //printf("\tK: %s\n", message.mtext); //to co ponizej
         printf(ANSI_COLOR_YELLOW "Klient %d wchodzi do kolejki %d\n" ANSI_COLOR_RESET, getpid(), kasa);
 
 //czekanie w kolejce
-        while (msgrcv(id_kolejki, &message, sizeof(message.mtext), message.mtype, IPC_NOWAIT) != -1) {
-            printf("Klient %d czeka w kolejce...\n", getpid());
-            sleep(1); 
-        }
+    //    while (msgrcv(id_kolejki, &message, sizeof(message.mtext), message.mtype, IPC_NOWAIT) != -1) {
+    //        printf("Klient %d czeka w kolejce %d...\n", getpid(), kasa);
+    //        sleep(1); 
+    //    }
 
 //zaplata
-        printf(ANSI_COLOR_BLUE "Klient %d placi przy kasie - opuszcza kolejke\n" ANSI_COLOR_RESET, getpid());
+        printf(ANSI_COLOR_BLUE "Klient %d placi przy kasie - opuszcza kolejke %d\n" ANSI_COLOR_RESET, getpid(), kasa);
 
 //wyjscie ze sklepu
         sem_v(0);
-        printf(ANSI_COLOR_CYAN "Klient %d wychodzi ze sklepu\t\t %d\\30 \n" ANSI_COLOR_RESET, getpid(), 30-semctl(id_sem, 0, GETVAL));
+        printf(ANSI_COLOR_CYAN "Klient %d wychodzi ze sklepu \t\t %d\\30 \n" ANSI_COLOR_RESET, getpid(), 30-semctl(id_sem, 0, GETVAL));
         exit(0); //zakoncz zywot
-    } 
-        
-
-        
     
-
+    }
     return 0;
 }
