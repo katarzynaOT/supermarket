@@ -37,6 +37,8 @@ int K; //liczba klientow w sklepie
 key_t klucz = 21370; //ftok("pp", 127);
 
 volatile sig_atomic_t pozar = 0; //do powiadomienia sklepu o pozarze
+//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; //do printf
+
 
 int id_sem; 
 int id_kolejki;
@@ -190,22 +192,21 @@ void zakoncz_program() {
 
 //pozar
 void pozar_alarm(int sig) {
-    if (sig == SIGUSR1) {
+    if (sig == SIGINT) {
         pozar = 1;
-        printf("\tPracownik %d sklepu wie, ze jest pozar\n", getpid());
+//printf("\tPracownik %d sklepu wie, ze jest pozar\n", getpid());
         sem_p(3); //opusc swoje stanowisko kasowwe
+//printf("\tPracownik %d opuscil swoje stanowisko kasowe\n", getpid());
         while(1) { //czekam na ewakuacje klientow
             sleep(1);
-            //printf("Pracownik %d czeka na wyjscie klietnow\n", getpid());
-            if(semctl(id_sem, 0, GETVAL) == 30) { //czy wszyscy klienci wyszli
-                printf("\nNikogo nie ma w sklepie -> zamknij kasy\n");
+//printf("\tPracownik %d czeka na wyjscie klietnow, n = %d \n", getpid(), semctl(id_sem, 0, GETVAL));
+            if(semctl(id_sem, 0, GETVAL) <= 30) { //czy wszyscy klienci wyszli
+//printf("\nNikogo nie ma w sklepie -> zamknij kasy\n");
                 semctl(id_sem, 0, SETVAL, 0);
-                //printf("Nikogo nie ma na kasach\n");
                 break;
             }
         }
-        printf("\tPracownik (z kasy) %d ucieka ze sklepu.\n", getpid());
-        zakoncz_program();
+//printf("\tPracownik (z kasy) %d ucieka ze sklepu.\n", getpid());
         exit(0); //uciekaj jak nie ma juz klientow w sklepie
     }
 
@@ -223,26 +224,32 @@ void pozar_alarm(int sig) {
 void *obsluga_kasy(void* arg) {
     struct dane_kasy* dane = (struct dane_kasy*)arg; // Rzutowanie wskaźnika void* na struct dane_kasy*
     int msg_id = dane->id_msg; //id kolejki
-    int id_kasy = dane->id_nowej_kasy;
-
+    int id_kasy = dane->id_nowej_kasy + 1;
     struct msg_buffer message;
-//int liczba_klientow = 30 - semctl(id_sem, 0, GETVAL);
-//int liczba_kas = semctl(id_sem, 3, GETVAL);
-//int wzor = (liczba_kas - 1) * KLIENCI_NA_KASE;
-//printf(ANSI_COLOR_WHITE "\t\tIV. kl = %d, ka = %d, wz = %d\n", liczba_klientow, liczba_kas, wzor);
-    printf(ANSI_COLOR_WHITE "\tWatek %ld jest na kasie %d\n", pthread_self(), id_kasy);
-    sleep(2);
 
-    while ( semctl(id_sem, 3, GETVAL) <= id_kasy && !pozar) { //dopoki kasa otwarta i nie ma pozaru (i ktos czeka w kolejce - to do)
+    //printf(ANSI_COLOR_WHITE "\tWatek %ld jest na kasie %d\n", pthread_self(), id_kasy);
+    //sleep(2);
+    while ( id_kasy <= semctl(id_sem, 3, GETVAL) && !pozar ) { //dopoki kasa otwarta i nie ma pozaru (i ktos czeka w kolejce - to do)
 //obsluga kllienta na kasie
         if (msgrcv(msg_id, &message, sizeof(message.mtext) - sizeof(long), id_kasy, 0) == -1) {
             perror("blad odczytania komuinkatu");
             exit(EXIT_FAILURE);
         }
-        printf(ANSI_COLOR_MAGENTA "Kasa %d obsluguje klienta %s\n" ANSI_COLOR_RESET, id_kasy, message.mtext);       
-        sleep((rand() % 11) + 1); ///czas obslugi jednego klienta (od 1 do 11)
-        printf("d2 = %d\n", pozar);
+ //pthread_mutex_lock(&mutex);  //zablokuj mutex
+ //printf(ANSI_COLOR_MAGENTA "Kasa %d obsluguje klienta %s\n" ANSI_COLOR_RESET, id_kasy, message.mtext);
+ //fflush(stdout);
+ //pthread_mutex_unlock(&mutex); //odblokuj mutex
+        //sleep((rand() % 11) + 1); ///czas obslugi jednego klienta (od 1 do 11)
+        sleep(3);
+    // Sprawdzanie liczby komunikatów w kolejce
+        struct msqid_ds stats;
+        if (msgctl(id_kolejki, IPC_STAT, &stats) == -1) {
+            perror("msgctl failed");
+            exit(1);
+        }
+        //printf("Liczba oczekujących komunikatów w kolejce: %lu\n", stats.msg_qnum);
     }
+    //printf(ANSI_COLOR_WHITE "\tWatek %ld opuscza kase %d\n", pthread_self(), id_kasy);
     return NULL;
 }
 
@@ -262,7 +269,7 @@ int main(){
     sa.sa_handler = pozar_alarm;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("blad ustawienia sygnalu");
         exit(EXIT_FAILURE);
     }
@@ -307,10 +314,11 @@ int main(){
         int liczba_klientow = 30 - semctl(id_sem, 0, GETVAL);
         int liczba_kas = semctl(id_sem, 3, GETVAL);
         int wzor = (liczba_kas - 1) * KLIENCI_NA_KASE;
+        //printf("\t\tliczba kas = %d\n", liczba_kas);
 //printf(ANSI_COLOR_WHITE "\t\tI. kl = %d, ka = %d, wz = %d\n", liczba_klientow, liczba_kas, wzor);
 //zwiekszenie liczby kas
         if ( (liczba_klientow > wzor) && (liczba_kas < 10) ) { 
-//printf(ANSI_COLOR_WHITE "\tZwieksz kasy, pp = %d, p = %d\n", (liczba_kas - 1) * KLIENCI_NA_KASE, (liczba_klientow > ((liczba_kas - 1) * KLIENCI_NA_KASE)));
+printf(ANSI_COLOR_WHITE "\tZwieksz kasy, lic.kas.= %d, lic.kli.=%d\n", liczba_kas, liczba_klientow);
 sleep(1);
             struct dane_kasy* dane = malloc(sizeof(struct dane_kasy));
             if (dane == NULL) {
@@ -327,7 +335,7 @@ sleep(1);
             sem_v(3); //otworz nowa kase
 //zmniejszenie liczby kas
         } else if ( (liczba_klientow < wzor) && (liczba_kas > 2) ) { 
-//printf(ANSI_COLOR_WHITE "\tZmniejsz kasy, pp = %d, p = %d\n", (liczba_kas - 1) * KLIENCI_NA_KASE, (liczba_klientow > ((liczba_kas - 1) * KLIENCI_NA_KASE)));
+printf(ANSI_COLOR_WHITE "\tZmniejsz kasy, lic.kas.= %d, lic.kli.=%d\n", liczba_kas, liczba_klientow);
 sleep(1);            
             sem_p(3); //zamykamy kase
             pthread_t pracownik;
