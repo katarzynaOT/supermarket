@@ -9,17 +9,16 @@
 #include <sys/msg.h>
 #include <time.h>
 
-#define MAX_AKTYWNYCH_KLIENTOW 20 //klienci w sklepie i klienci czekajacy przed sklepem, ktorzy sobie jeszcze nie poszli
-
-volatile sig_atomic_t pozar = 0;
+#define MAX_AKTYWNYCH_KLIENTOW 35 //klienci w sklepie i klienci czekajacy przed sklepem, ktorzy sobie jeszcze nie poszli
 
 key_t klucz = 21370; //ftok("pp", 127);
 int id_sem; 
 int id_kolejki;
 
+volatile sig_atomic_t pozar = 0; 
+
 //usun semfory i kolejki
 void zakoncz_program() {
-    //sleep(1);
     printf("\n\t KONCZE PROGRAM...\n");
     if (semctl(id_sem, 0, IPC_RMID) == -1) {
         perror("blad usunania semaforow");
@@ -40,13 +39,15 @@ void zakoncz_program() {
 
 void pozar_alarm(int sig) {
     printf("men\n");
-    if (sig == SIGUSR1) {
-        printf("\tJestem sobie menedzer - pozar\n");
+    pozar = 1;
+    if (sig == SIGINT) {
+        semctl(id_sem, 2, SETVAL, 0); //zablokuj sklep - powiedz ochroniarzowi, by nikogo nie wpuszczal
+//semctl(id_sem, 1, SETVAL, 0); //zablokuj ksiege gosci
+        while (waitpid(-1, NULL, WNOHANG) > 0);
+//printf("wszytsko powinno byc skonczone\n");
+        sleep(5);
+        zakoncz_program();
     }
-    semctl(id_sem, 2, GETVAL) == 0; //zablokuj sklep - powiedz ochroniarzowi, by nikogo nie wpuszczal
-    //while (wait(NULL) > 0);
-    //zakoncz_program();
-    //printf("");
 }
 
 int main() {
@@ -55,7 +56,7 @@ int main() {
         perror("blad tworzenia semaforow");
         exit(EXIT_FAILURE);
     }
-    id_kolejki = msgget(klucz, 0600 | IPC_CREAT);
+    id_kolejki = msgget(klucz, 0600 | IPC_CREAT); //kolejka
     if(id_kolejki == -1) {
 		printf("Blad tworzenia kolejki komunikatow.\n");
 		exit(EXIT_FAILURE);
@@ -65,7 +66,10 @@ int main() {
     sa.sa_handler = pozar_alarm;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("blad ustawienia sygnalu");
+        exit(EXIT_FAILURE);
+    }
 
     pid_t kierownik_id = fork();
     if (kierownik_id == -1) {
@@ -121,28 +125,25 @@ printf("\tAKTYWNI KLIENCI = %d\n", aktywni_klienci);
     sleep(1);
     srand(time(NULL));
     int aktywni_klienci = 0;
-    while ( aktywni_klienci < MAX_AKTYWNYCH_KLIENTOW ) { //+czy koniec dnia? //&& !pozar
-        if (semctl(id_sem, 2, GETVAL) == 1 && !pozar ) { //czy sklep otwarty
+    while ( semctl(id_sem, 2, GETVAL) == 1 && !pozar ) { //+czy koniec dnia?
+        if (aktywni_klienci < MAX_AKTYWNYCH_KLIENTOW && !pozar ) { //czy sklep otwarty
+            aktywni_klienci ++;
             pid_t klient_id = fork();
             if (klient_id == -1) {
                 perror("nieudany fork dla klienta");
                 exit(EXIT_FAILURE);
             } else if (klient_id == 0) { 
                 //printf("WLACZONY KLIENT\n");
-                aktywni_klienci ++;
                 execlp("./klient", "klient", NULL);
                 perror("nie udany execlp dla klienta");
                 exit(EXIT_FAILURE);
             }
             while (waitpid(-1, NULL, WNOHANG) > 0) aktywni_klienci--; //zabicie zombie
-            sleep(2); ////produkuj klientow co ilestam sekund
+            sleep(1); ////produkuj klientow co ilestam sekund
 
             //powiedz, ze koniec dnia
         }
     }
-
-    printf("m\n");
-    while (wait(NULL) > 0); //rodzic czeka na ukonczenie wszystkich potomkow - by poprawnie bylo
 
     while (waitpid(-1, NULL, WNOHANG) > 0);
     //zbieranie zobmiakow wersja 2
